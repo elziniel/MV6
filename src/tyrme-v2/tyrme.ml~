@@ -1,0 +1,244 @@
+(**************************************************************)
+(* Language Tyrme: expr, lexing and parsing                   *)
+(**************************************************************)
+
+(* La definition de l'arbre syntactique des expression Tyrme se trouve
+   dans ast.mli *)
+open Ast
+
+
+(* fonction de parsing: prends une expression de Tyrme et retourne
+   l'arbre syntactique *)
+let parse (s : string) : expr = Parser.main Lexer.token (Lexing.from_string s)
+
+
+(**************************************************************)
+(* Instructions of the MV                                     *)
+(**************************************************************)
+
+type instr =
+| Halt
+| Push
+| Print
+| Apply
+| Acc of int
+| Const of int
+| Return of int
+| Pop of int
+| Branchif of int
+| Branch of int
+| Getblock of int
+| Makeblock of int * int
+| Closure of int * int
+| Binop of int
+| Str of string
+| Add
+| Sub
+| Mul
+| Div
+| Eqi
+| Cat
+
+
+let string_of_instr : instr -> string = function
+  | Halt -> "Halt"
+  | Push -> "Push"
+  | Print -> "Print"
+  | Apply -> "Apply"
+  | Acc i -> "Acc " ^ (string_of_int i)
+  | Const i -> "Const " ^ (string_of_int i)
+  | Return i -> "Return " ^ (string_of_int i)
+  | Pop i -> "Pop " ^ (string_of_int i)
+  | Branchif o -> "Branchif " ^ (string_of_int o)
+  | Branch o -> "Branch " ^ (string_of_int o)
+  | Getblock n -> "Getblock " ^ (string_of_int n)
+  | Makeblock (t, n) -> "Makeblock (" ^ (string_of_int t) ^ ", " ^ (string_of_int n) ^ ")"
+  | Closure (n, o) -> "Closure (" ^ (string_of_int n) ^ ", " ^ (string_of_int o) ^ ")"
+  | Binop b -> "Binop " ^ (string_of_int b)
+  | Str s -> "Str " ^ s
+  | Add -> "Add"
+  | Sub -> "Sub"
+  | Mul -> "Mul"
+  | Div -> "Div"
+  | Eqi -> "Eqi"
+  | Cat -> "Cat"
+
+
+(**************************************************************)
+(* Asm                                                        *)
+(**************************************************************)
+
+
+(* Fonctions de lecture et d'ecriture d'entier 8bits et 32bits *)
+let out_i8  (buf : out_channel) (i : int) : unit = output_char buf (char_of_int i)
+let out_i32 (buf : out_channel) (i : int) : unit = output_binary_int buf i 
+
+let in_i8   (buf : in_channel) : int = int_of_char (input_char buf)
+let in_i32  (buf : in_channel) : int = input_binary_int buf
+
+
+(* Fonction d'assemblage d'instruction *)
+let assemble_instr (buf : out_channel) : instr -> unit = function
+  | Halt -> out_i8 buf 0
+  | Push -> out_i8 buf 1
+  | Print -> out_i8 buf 2
+  | Apply -> out_i8 buf 3
+  | Acc i -> out_i8 buf 4; out_i32 buf i
+  | Const i -> out_i8 buf 5; out_i32 buf i
+  | Return i -> out_i8 buf 6; out_i32 buf i
+  | Pop i -> out_i8 buf 7; out_i32 buf i
+  | Branchif o -> out_i8 buf 8; out_i8 buf o
+  | Branch o -> out_i8 buf 9; out_i8 buf o
+  | Getblock n -> out_i8 buf 10; out_i32 buf n
+  | Makeblock (t, n) -> out_i8 buf 11; out_i8 buf t; out_i32 buf n
+  | Closure (n, o) -> out_i8 buf 12; out_i32 buf n; out_i8 buf o
+  | Binop b -> out_i8 buf 13; out_i8 buf b
+  | Str s -> out_i8 buf 14
+  | Add -> out_i8 buf 15
+  | Sub -> out_i8 buf 16
+  | Mul -> out_i8 buf 17
+  | Div -> out_i8 buf 18
+  | Eqi -> out_i8 buf 19
+  | Cat -> out_i8 buf 20
+
+
+(* Fonction d'assemblage d'une liste d'instructions *)
+let rec assemble (buf : out_channel) : instr list -> unit = function
+  | [] -> ()
+  | i::il -> assemble_instr buf i; assemble buf il
+
+
+(* Ecrite pour vous: une fonction d'assemblage qui ecrit dans un fichier *)
+let assemble_filename (name : string) (is : instr list) : unit = 
+  let buf = open_out_bin name in
+  begin
+    assemble buf is;
+    close_out buf
+  end
+
+
+let exemple = [Halt; Push; Binop 2; Add]
+let test = assemble_filename "test.tm" exemple
+
+
+(* fonction de desassemblage: stub *)
+let rec disassemble (buf : in_channel) : instr list =
+  (* Get the next char, and make sure to capture the end of the file *)
+  let inc = (try Some (in_i8 buf) with | End_of_file -> None) in
+  (* Test if there were a char *)
+  match inc with
+  | None -> []  (* Nope: end of the file *)
+  | Some c ->     (* Yep ! Carry on *)
+     (*
+ 
+     ici, vous avez recupere un entier 8 bits (la valeur c) qui encode
+     une instruction. Derriere, d'autre octets donnent potentiellement
+     les arguments. A vous de les recuperer et d'en faire une
+     instruction.
+      
+      *)
+    let tmp = match c with
+      | 0 -> Halt
+      | 1 -> Push
+      | 2 -> Print
+      | 3 -> Apply
+      | 4 -> Acc (in_i32 buf)
+      | 5 -> Const (in_i32 buf)
+      | 6 -> Return (in_i32 buf)
+      | 7 -> Pop (in_i32 buf)
+      | 8 -> Branchif (in_i8 buf)
+      | 9 -> Branch (in_i8 buf)
+      | 10 -> Getblock (in_i32 buf)
+      | 11 -> Makeblock (in_i8 buf, in_i32 buf)
+      | 12 -> Closure (in_i32 buf, in_i8 buf)
+      | 13 -> Binop (in_i8 buf)
+      | 14 -> Str "l"
+      | 15 -> Add
+      | 16 -> Sub
+      | 17 -> Mul
+      | 18 -> Div
+      | 19 -> Eqi
+      | 20 -> Cat
+      | _ -> failwith "invalid byte-code"
+    in tmp::disassemble buf
+
+
+
+(* Ecrite pour vous: une fonction de desassemblage qui lit d'un fichier *)
+let disassemble_filename (name : string) : instr list = 
+  let buf = open_in_bin name in
+  let insts = disassemble buf in
+  let _ = close_in buf in
+  insts
+
+let test2 = disassemble_filename "test.tm"
+
+
+(**************************************************************)
+(* Machine virtuelle                                          *)
+(**************************************************************)
+
+type tag = UNE_DEFINITION_DU_TAG_PAR_EXEMPLE_CHAR_OU_INT
+
+type mot = 
+  | MotInt of int
+  | PointString of string
+  | PointBloc of (tag * (mot list))
+
+
+let rec string_of_mot : mot -> string = failwith "peut-etre un pretty-printer?"
+
+
+type mv_state = L_ETAT_DE_LA_MACHINE_VIRTUELLE
+
+
+(* retourne l'accumulateur de l'etat donne en argument *)
+let get_acc (s : mv_state) : mot = failwith "l'accumulateur de l'etat"
+
+
+(* Pour construire l'etat de la machine au debut de l'execution *)
+let init (c : instr list) : mv_state = failwith "etat de depart de la machine"
+
+
+(* Peut-etre une fonction d'impression ? *)
+let print_state (s : mv_state) : unit = failwith "pretty-printing de l'etat de la machine"
+               
+
+
+(* La fonction d'execution de la machine *)
+let machine (s : mv_state) : mv_state = failwith "execution de la machine"
+
+
+(* La fonction d'evaluation: retourne l'accumulateur a la fin de l'evaluation *)
+let eval (c : instr list) : mot =
+  let s = machine (init c) in get_acc s
+
+
+
+
+(**************************************************************)
+(* Compilation                                                *)
+(**************************************************************)
+
+type env = UN_ENV_DE_COMPILATION
+
+let empty_env = failwith "l'environement vide"
+
+
+(* La fonction de compilation *)
+let rec compil : env * expr -> instr list = failwith "compilation"
+
+
+
+
+
+(* Pour lire le codex *)
+let lire_codex () = 
+  print_string (string_of_mot (eval (disassemble_filename "codex.tm")))
+               
+               
+(* Exemple de compilation qui doit marcher et rendre la valeur 3 *)
+let ex_compil () =
+  print_string (string_of_mot (eval (compil (empty_env, parse "let x = 1 in x + 2"))))
+
+
